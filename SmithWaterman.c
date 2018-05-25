@@ -1,45 +1,47 @@
 
-#include<stdio.h>
-#include<stdlib.h>
-#include<string.h>
-#include<limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+// #include <mpi.h>
 /**/
-#define MAX_LEN (400)
+#define MAX_LEN (10000)
 #define MATCH (5)
 #define MISMATCH (-5)
-#define W (5)
+#define W (10)
+
 /**/
-char *strA, *strB;
-int lenA, lenB;
-int nRow, nCol;
-int* dpM;
+int readFile(char*, char*);
 /**/
-void readFile(char* strInputFileNameA, char *strInputFilenameB);
+void initDPMatrix(int*, int , int);
 /**/
-void initDPMatrix();
+void align(int*, int, int, char*, char*);
 /**/
-void align();
+void displayDPMatrix(int*, int, int);
 /**/
-void displayDPMatrix();
-/**/
-void traceBack();
+void traceBack(int*, int, int, char*, char*);
+
+
 int main(int argc, char** argv)
 {
-	strA = (char *) malloc(MAX_LEN*sizeof(char));
-	strB = (char *) malloc(MAX_LEN*sizeof(char));
-	readFile("inputA.txt","inputB.txt" );
+	char *strA = (char *) malloc(MAX_LEN*sizeof(char));
+	char *strB = (char *) malloc(MAX_LEN*sizeof(char));
+	int nRow, nCol, lenA, lenB;
+	lenA = readFile("inputA.txt",strA);
+	lenB = readFile("inputB.txt",strB);
 	printf("Read file done\n");	
 	nRow = lenA + 1;
 	nCol = lenB + 1;
+	int* dpM = (int*) malloc(sizeof(int)*nRow*nCol);
 	dpM = (int*) malloc(sizeof(int)*nRow*nCol);
-	initDPMatrix();
+	initDPMatrix(dpM, nRow, nCol);
 	printf("init matrix done\n");
 	/**/
-	align();
+	align(dpM, nRow, nCol, strA, strB);
 	/**/
 //	displayDPMatrix();
 	/**/
-	traceBack();
+	traceBack(dpM, nRow, nCol, strA, strB);
 	/**/
 	free(dpM);
 	free(strA);
@@ -47,7 +49,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 /**/
-void initDPMatrix()
+void initDPMatrix(int *dpM, int nRow, int nCol)
 {
 	int i;
 	int j;
@@ -56,7 +58,7 @@ void initDPMatrix()
 	/**/	
 }
 /**/
-void align()
+void align(int *dpM, int nRow, int nCol, char *strA, char *strB)
 {
 	int tmpM, tmpI, tmpD,score;
 	int i,j;
@@ -74,10 +76,10 @@ void align()
 		}
 }
 /**/
-void readFile(char* strInputFileNameA, char *strInputFileNameB)
+int readFile(char* strInputFileNameA, char *strA)
 {
 	int c;
-	int i = 0, j = 0; 
+	int i = 0, j = 0, lenA;
 	FILE* fIn;
 	fIn = fopen(strInputFileNameA,"r");
 	if(fIn == NULL)
@@ -92,25 +94,10 @@ void readFile(char* strInputFileNameA, char *strInputFileNameB)
 	strA[i] = '\0';
 	lenA = strlen(strA);
 	fclose(fIn);	
-        fIn = fopen(strInputFileNameB,"r");
-        if(fIn == NULL)
-        {
-                printf("Can not open file %s\n",strInputFileNameB);
-                exit(1);
-        }
-        /**/
-        while((c = fgetc(fIn)) != EOF && j < MAX_LEN){
-		if(c == 'a' || c == 't' || c == 'g' || c == 'c') strB[j++] = c;
-        }
-	strB[j] = '\0';
-	lenB = strlen(strB);
-	fclose(fIn);
-	printf("A: %s\n",strA);
-	printf("B: %s\n",strB);
-	printf("lenA = %d, lenB = %d\n",lenA,lenB);
-	fflush(stdout);
+	printf("lenA = %d\n",lenA);
+	return lenA;
 }
-void displayDPMatrix()
+void displayDPMatrix(int* dpM, int nRow, int nCol)
 {
 	int i,j;
 	for(i=0;i<nRow;++i)
@@ -121,15 +108,15 @@ void displayDPMatrix()
 	}
 }
 /**/
-void traceBack()
+void traceBack(int *dpM, int nRow, int nCol, char *strA, char *strB)
 {
 	int i,j,i1,j1;
 	int maxCol, maxRow, maxScore;
 	int traceType; //1: diagonal (match/mismatch), 2: left (insert to A), 3: up (insert to B)
 	int seqLen;
 	char *seqA, *seqB;
-	seqA = (char *) malloc(lenA*sizeof(char));
-	seqB = (char *) malloc(lenB*sizeof(char));
+	seqA = (char *) malloc((nRow - 1)*sizeof(char));
+	seqB = (char *) malloc((nCol - 1)*sizeof(char));
 	maxCol = maxRow = maxScore = 0;
 	/**/
 	for(i=0;i<nRow;++i)
