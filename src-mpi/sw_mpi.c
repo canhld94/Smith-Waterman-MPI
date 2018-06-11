@@ -5,22 +5,26 @@
 #include <sys/time.h>
 #include <math.h>
 #include <mpi.h>
+#include <omp.h>
 /**/
-#define MATCH (5)
-#define MISMATCH (-5)
-#define W (10)
+#define MATCH (10)
+#define MISMATCH (-10)
+#define W (20)
 
 #define MPI01 (0)
 #define MPI12 (1)
 #define MPI23 (3)
 
-#define LEN ((int) pow(2,15))
+#define LEN ((int) pow(2,17))
 #define ROW (LEN+1)
 #define COL (LEN+1)
 // #define nProc (2)
 #define RLOCAL (ROW/nProc+1)
 #define RBLOCK RLOCAL
 #define CBLOCK RLOCAL
+
+#define GRIDX (32)
+#define GRIDY GRIDX
 
 /**/
 int readFile(char*, char*, int);
@@ -35,6 +39,8 @@ void traceBack(int*, int, int, char*, char*);
 
 void computeBlock(int*, char*, char*,int, int, int, int, int, int);
 
+void computeNode(int *dpM, char *strA, char *strB, int nRow, int nCol, int round, int rank, int cLocal, int rLocal, int nProc);
+
 void align_omp(int*, int, int, char*, char*);
 
 void traceBack_omp(int*, int, int, char*, char*);
@@ -45,7 +51,7 @@ int main(int argc, char** argv)
 	char *strB = (char *) malloc(LEN*sizeof(char)+1);
 	int *dpM, *sub_dpM;
 	int nProc, rank;
-	double start, end;
+	struct timeval start, end;
 	double execTime = 0;
 	MPI_Status status;
     MPI_Request request;
@@ -71,11 +77,13 @@ int main(int argc, char** argv)
 	MPI_Bcast(strA, LEN, MPI_CHAR, 0, MPI_COMM_WORLD);
 	MPI_Bcast(strB, LEN, MPI_CHAR, 0, MPI_COMM_WORLD);
 	if(rank == 0){ // init matrix and compute the first block
-		dpM = (int*) malloc(sizeof(int)*ROW*COL);
+		dpM = (int*) malloc(sizeof(int)*RLOCAL*COL);
 		sub_dpM = dpM;
-		initDPMatrix(dpM, ROW, COL);
-		start = MPI_Wtime();
-		computeBlock(dpM, strA, strB, ROW, COL, 0, 0, CBLOCK, RBLOCK);	
+		initDPMatrix(dpM, RLOCAL, COL);
+		gettimeofday(&start, NULL);
+		// start = MPI_Wtime();
+		// computeBlock(dpM, strA, strB, ROW, COL, 0, 0, CBLOCK, RBLOCK);	
+		computeNode(sub_dpM, strA, strB, RLOCAL, COL, 0, rank, RBLOCK, CBLOCK, nProc);
 	}
 	else{
 		sub_dpM = (int *) malloc(sizeof(int)*RLOCAL*COL);
@@ -83,7 +91,7 @@ int main(int argc, char** argv)
 			sub_dpM[i*COL] = 0;
 		}
 	}
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 	/*Send row to 2nd node*/
 	for(int k = 1; k < 2*nProc-1; ++k){
 		if(rank == 0) {
@@ -106,44 +114,49 @@ int main(int argc, char** argv)
 		}
 		if(k < nProc){
 			if(rank <= k){
-					computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
+					// computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
+					computeNode(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, k, rank, RBLOCK,CBLOCK, nProc);
 					// if (rank == 1) {
 					// 	printf("Node %d: compute done in round %d!\n", rank, k);
-					// 	// displayDPMatrix(sub_dpM, RLOCAL, COL);
+					// 	displayDPMatrix(sub_dpM, RLOCAL, COL);
 					// }
 			}
 		}
 		else {
 			if(rank > k - nProc){
-					computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
+					// computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
+					computeNode(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, k, rank, RBLOCK,CBLOCK, nProc);
 					// if (rank == 1) {
 					// 	printf("Node %d: compute done in round %d!\n", rank, k);
 					// 	// displayDPMatrix(sub_dpM, RLOCAL, COL);
 					// }
 			}
 		}	
-		// MPI_Barrier(MPI_COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 	// for(int k = 1; k < nProc; ++k){
 
 	// }
 	// MPI_Barrier(MPI_COMM_WORLD);
 	// MPI_Gather(sub_dpM+COL, (RLOCAL-1)*COL, MPI_INT, dpM + COL, (RLOCAL-1)*COL, MPI_INT, 0, MPI_COMM_WORLD);
-	if (rank != 0)
-		MPI_Send(sub_dpM, RLOCAL*COL, MPI_INT, 0, 1, MPI_COMM_WORLD);
+	if (rank != 0){
+		// MPI_Send(sub_dpM, RLOCAL*COL, MPI_INT, 0, 1, MPI_COMM_WORLD);
+		// printf("Node %d: sent to node %d in last round\n", rank, 0);
+	}
 	else{
-		for(int id = 1; id < nProc; ++id){
-			MPI_Recv(dpM+id*COL*(RLOCAL-1), RLOCAL*COL, MPI_INT, id, 1, MPI_COMM_WORLD, &status);
-		}
-		printf("Data gather at node %d!\n", rank);
-		// computeBlock(dpM, strA, strB, (LEN+1), (LEN+1), RLOCAL - 1, RLOCAL - 1, RLOCAL, RLOCAL);
-		// displayDPMatrix(dpM, ROW, COL);
-		traceBack_omp(dpM, ROW, COL, strA, strB);
-
-		end = MPI_Wtime();
-		//execTime = (end.tv_sec - start.tv_sec) * 1000.0;      // sec to ms
-		//execTime += (end.tv_usec - start.tv_usec) / 1000.0;   // us to ms
-		printf("MPI code execution time: %lf\n", (end - start)*1000);
+		gettimeofday(&end, NULL);
+		// end = MPI_Wtime();
+		// for(int id = 1; id < nProc; ++id){
+		// 	MPI_Recv(dpM+id*COL*(RLOCAL-1), RLOCAL*COL, MPI_INT, id, 1, MPI_COMM_WORLD, &status);
+		// 	printf("Node %d: recieve node %d in last round\n", 0, id);
+		// }
+		// // computeBlock(dpM, strA, strB, (LEN+1), (LEN+1), RLOCAL - 1, RLOCAL - 1, RLOCAL, RLOCAL);
+		// // displayDPMatrix(dpM, ROW, COL);
+		// printf("Data gather at node %d!\n", rank);
+		// traceBack_omp(dpM, ROW, COL, strA, strB);
+		execTime = (end.tv_sec - start.tv_sec) * 1000.0;      // sec to ms
+		execTime += (end.tv_usec - start.tv_usec) / 1000.0;   // us to ms
+		printf("MPI code execution time: %lf\n", execTime);
 	}
 
     // gettimeofday(&start, NULL);
@@ -312,6 +325,38 @@ void computeBlock(int *dpM, char *strA, char *strB, int nRow, int nCol, int ox, 
 		}
 
 }
+
+void computeNode(int *dpM, char *strA, char *strB, int nRow, int nCol, int _round, int rank, int cLocal, int rLocal, int nProc)
+{
+	int i, j, k;
+	int blockx = cLocal / GRIDX + 1, blocky = rLocal / GRIDY + 1;
+	int node_ox = (_round-rank)*(CBLOCK-1);
+	int node_oy = 0;
+	for(k = 0; k < GRIDX; ++k){
+	#pragma omp parallel for num_threads(GRIDX)  private(i, j)
+		for(j = 0; j <= k ; ++j){
+			i = k - j;
+			int ox = i*(blockx - 1);
+			int oy = j*(blocky - 1);
+			computeBlock(dpM, strA, strB, nRow, nCol,node_ox+ox,node_oy+oy, blockx, blocky);
+		}
+	}
+	// displayDPMatrix(dpM, nRow, nCol);
+	// printf("Region 1 done \n");
+	for(k = 1 ; k < GRIDY; ++k){
+	#pragma omp parallel for num_threads(GRIDX) private(i, j)
+		// #pragma omp for schedule(dynamic,1)
+		for(j = k; j < GRIDY; ++j){
+			i = GRIDY + k  - j - 1;
+			int ox = i*(blockx - 1);
+			int oy = j*(blocky - 1);
+			computeBlock(dpM, strA, strB, nRow, nCol,node_ox+ox,node_oy+oy, blockx, blocky);
+		}
+	}
+	// displayDPMatrix(dpM, nRow, nCol);
+	// printf("Region 2 done \n");
+}
+
 
 void traceBack_omp(int *dpM, int nRow, int nCol, char *strA, char *strB)
 {
