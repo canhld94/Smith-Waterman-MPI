@@ -56,19 +56,12 @@ int main(int argc, char** argv)
 	MPI_Status status;
     MPI_Request request;
 
-//	MPI intit
+	//	MPI intit
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &nProc);
-    // if(nP != nProc){
-    //     printf("Number of nodes must be %d\n", nProc);
-    //     exit(0);
-    // }
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    // MPI_Type_vector(RLOCAL, RLOCAL, LEN+1, MPI_INT, &block);
-	// MPI_Type_commit(&block);
-	// MPI_Type_vector(RLOCAL, 1, LEN+1, MPI_INT, &column);
-	// MPI_Type_commit(&column);
-//	master node will read sequences and broadcast it to all node
+
+	//	master node will read sequences and broadcast it to all node
 	if(rank == 0){
 		readFile("inputA.txt",strA, LEN);
 		readFile("inputB.txt",strB, LEN);
@@ -81,8 +74,7 @@ int main(int argc, char** argv)
 		sub_dpM = dpM;
 		initDPMatrix(dpM, RLOCAL, COL);
 		gettimeofday(&start, NULL);
-		// start = MPI_Wtime();
-		// computeBlock(dpM, strA, strB, ROW, COL, 0, 0, CBLOCK, RBLOCK);	
+		start = MPI_Wtime();
 		computeNode(sub_dpM, strA, strB, RLOCAL, COL, 0, rank, RBLOCK, CBLOCK, nProc);
 	}
 	else{
@@ -91,7 +83,6 @@ int main(int argc, char** argv)
 			sub_dpM[i*COL] = 0;
 		}
 	}
-	// MPI_Barrier(MPI_COMM_WORLD);
 	/*Send row to 2nd node*/
 	for(int k = 1; k < 2*nProc-1; ++k){
 		if(rank == 0) {
@@ -108,13 +99,9 @@ int main(int argc, char** argv)
 			// printf("Node %d: recv from node %d in round %d!\n", rank, rank -1, k);
 			MPI_Send(sub_dpM + (RLOCAL-1)*COL, COL, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
 			// printf("Node %d: sent to node %d in round %d!\n", rank, rank + 1, k);
-			// if (rank == 1) {
-			// 	displayDPMatrix(sub_dpM, RLOCAL, COL);
-			// }
 		}
 		if(k < nProc){
 			if(rank <= k){
-					// computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
 					computeNode(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, k, rank, RBLOCK,CBLOCK, nProc);
 					// if (rank == 1) {
 					// 	printf("Node %d: compute done in round %d!\n", rank, k);
@@ -124,50 +111,32 @@ int main(int argc, char** argv)
 		}
 		else {
 			if(rank > k - nProc){
-					// computeBlock(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, (k-rank)*(CBLOCK-1), 0, RBLOCK, CBLOCK);
 					computeNode(sub_dpM, strA + rank*(RLOCAL-1), strB, RLOCAL, COL, k, rank, RBLOCK,CBLOCK, nProc);
 					// if (rank == 1) {
 					// 	printf("Node %d: compute done in round %d!\n", rank, k);
-					// 	// displayDPMatrix(sub_dpM, RLOCAL, COL);
+					// 	displayDPMatrix(sub_dpM, RLOCAL, COL);
 					// }
 			}
 		}	
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
-	// for(int k = 1; k < nProc; ++k){
-
-	// }
-	// MPI_Barrier(MPI_COMM_WORLD);
-	// MPI_Gather(sub_dpM+COL, (RLOCAL-1)*COL, MPI_INT, dpM + COL, (RLOCAL-1)*COL, MPI_INT, 0, MPI_COMM_WORLD);
 	if (rank != 0){
-		// MPI_Send(sub_dpM, RLOCAL*COL, MPI_INT, 0, 1, MPI_COMM_WORLD);
+		MPI_Send(sub_dpM, RLOCAL*COL, MPI_INT, 0, 1, MPI_COMM_WORLD);
 		// printf("Node %d: sent to node %d in last round\n", rank, 0);
 	}
 	else{
 		gettimeofday(&end, NULL);
-		// end = MPI_Wtime();
-		// for(int id = 1; id < nProc; ++id){
-		// 	MPI_Recv(dpM+id*COL*(RLOCAL-1), RLOCAL*COL, MPI_INT, id, 1, MPI_COMM_WORLD, &status);
-		// 	printf("Node %d: recieve node %d in last round\n", 0, id);
-		// }
-		// // computeBlock(dpM, strA, strB, (LEN+1), (LEN+1), RLOCAL - 1, RLOCAL - 1, RLOCAL, RLOCAL);
-		// // displayDPMatrix(dpM, ROW, COL);
+		end = MPI_Wtime();
+		for(int id = 1; id < nProc; ++id){
+			MPI_Recv(dpM+id*COL*(RLOCAL-1), RLOCAL*COL, MPI_INT, id, 1, MPI_COMM_WORLD, &status);
+			printf("Node %d: recieve node %d in last round\n", 0, id);
+		}
 		// printf("Data gather at node %d!\n", rank);
-		// traceBack_omp(dpM, ROW, COL, strA, strB);
+		traceBack_omp(dpM, ROW, COL, strA, strB);
 		execTime = (end.tv_sec - start.tv_sec) * 1000.0;      // sec to ms
 		execTime += (end.tv_usec - start.tv_usec) / 1000.0;   // us to ms
 		printf("MPI code execution time: %lf\n", execTime);
 	}
-
-    // gettimeofday(&start, NULL);
-
-	// // displayDPMatrix(dpM, (LEN+1), (LEN+1));
-	// traceBack(dpM, (LEN+1), (LEN+1), strA, strB);
-
-   	// gettimeofday(&end, NULL);
-	// execTime = (end.tv_sec - start.tv_sec) * 1000.0;      // sec to ms
-    // execTime += (end.tv_usec - start.tv_usec) / 1000.0;   // us to ms
-	// printf("Sequential code execution time: %lf\n", execTime);
 	MPI_Finalize();
 	if(rank == 0)
 	free(dpM);
